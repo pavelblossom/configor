@@ -11,22 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
-
-	"github.com/BurntSushi/toml"
-	"gopkg.in/yaml.v2"
 )
-
-// UnmatchedTomlKeysError errors are returned by the Load function when
-// ErrorOnUnmatchedKeys is set to true and there are unmatched keys in the input
-// toml config file. The string returned by Error() contains the names of the
-// missing keys.
-type UnmatchedTomlKeysError struct {
-	Keys []toml.Key
-}
-
-func (e *UnmatchedTomlKeysError) Error() string {
-	return fmt.Sprintf("There are keys in the config file that do not match any field in the given struct: %v", e.Keys)
-}
 
 func (configor *Configor) getENVPrefix(config interface{}) string {
 	if configor.Config.ENVPrefix == "" {
@@ -105,21 +90,9 @@ func processFile(config interface{}, file string, errorOnUnmatchedKeys bool) err
 	}
 
 	switch {
-	case strings.HasSuffix(file, ".yaml") || strings.HasSuffix(file, ".yml"):
-		if errorOnUnmatchedKeys {
-			return yaml.UnmarshalStrict(data, config)
-		}
-		return yaml.Unmarshal(data, config)
-	case strings.HasSuffix(file, ".toml"):
-		return unmarshalToml(data, config, errorOnUnmatchedKeys)
 	case strings.HasSuffix(file, ".json"):
 		return unmarshalJSON(data, config, errorOnUnmatchedKeys)
 	default:
-		if err := unmarshalToml(data, config, errorOnUnmatchedKeys); err == nil {
-			return nil
-		} else if errUnmatchedKeys, ok := err.(*UnmatchedTomlKeysError); ok {
-			return errUnmatchedKeys
-		}
 
 		if err := unmarshalJSON(data, config, errorOnUnmatchedKeys); err == nil {
 			return nil
@@ -127,39 +100,8 @@ func processFile(config interface{}, file string, errorOnUnmatchedKeys bool) err
 			return err
 		}
 
-		var yamlError error
-		if errorOnUnmatchedKeys {
-			yamlError = yaml.UnmarshalStrict(data, config)
-		} else {
-			yamlError = yaml.Unmarshal(data, config)
-		}
-
-		if yamlError == nil {
-			return nil
-		} else if yErr, ok := yamlError.(*yaml.TypeError); ok {
-			return yErr
-		}
-
 		return errors.New("failed to decode config")
 	}
-}
-
-// GetStringTomlKeys returns a string array of the names of the keys that are passed in as args
-func GetStringTomlKeys(list []toml.Key) []string {
-	arr := make([]string, len(list))
-
-	for index, key := range list {
-		arr[index] = key.String()
-	}
-	return arr
-}
-
-func unmarshalToml(data []byte, config interface{}, errorOnUnmatchedKeys bool) error {
-	metadata, err := toml.Decode(string(data), config)
-	if err == nil && len(metadata.Undecoded()) > 0 && errorOnUnmatchedKeys {
-		return &UnmatchedTomlKeysError{Keys: metadata.Undecoded()}
-	}
-	return err
 }
 
 // unmarshalJSON unmarshals the given data into the config interface.
@@ -207,7 +149,7 @@ func (configor *Configor) processDefaults(config interface{}) error {
 		if isBlank := reflect.DeepEqual(field.Interface(), reflect.Zero(field.Type()).Interface()); isBlank {
 			// Set default configuration if blank
 			if value := fieldStruct.Tag.Get("default"); value != "" {
-				if err := yaml.Unmarshal([]byte(value), field.Addr().Interface()); err != nil {
+				if err := json.Unmarshal([]byte(value), field.Addr().Interface()); err != nil {
 					return err
 				}
 			}
@@ -284,7 +226,7 @@ func (configor *Configor) processTags(config interface{}, prefixes ...string) er
 				case reflect.String:
 					field.Set(reflect.ValueOf(value))
 				default:
-					if err := yaml.Unmarshal([]byte(value), field.Addr().Interface()); err != nil {
+					if err := json.Unmarshal([]byte(value), field.Addr().Interface()); err != nil {
 						return err
 					}
 				}
